@@ -9,7 +9,6 @@ ipv6: false                 # 见 README:境外 v6 无代理出口易超时,统�
 unified-delay: true
 tcp-concurrent: true        # 多 IP 域名并发握手,单 IP 超时不拖死整条
 find-process-mode: "off"
-global-client-fingerprint: chrome
 keep-alive-interval: 15
 keep-alive-idle: 45
 profile:
