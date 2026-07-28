@@ -1,0 +1,82 @@
+# ============================================================
+# _general.yaml —— 端口无关的通用段(gateway/client 共用)
+# 由 build.sh 拼接,勿单独使用
+# ============================================================
+
+mode: Rule
+log-level: warning          # 生产用 warning,避免刷盘(debug 会打爆根盘)
+ipv6: false                 # 见 README:境外 v6 无代理出口易超时,统一关,境外必走 v4 代理
+unified-delay: true
+tcp-concurrent: true        # 多 IP 域名并发握手,单 IP 超时不拖死整条
+find-process-mode: "off"
+global-client-fingerprint: chrome
+keep-alive-interval: 15
+keep-alive-idle: 45
+profile:
+  store-selected: true      # 记住手动选择,重启/更新配置后不丢
+  store-fake-ip: true
+
+# —— 嗅探:还原被 CDN/QUIC 隐藏的真实域名,让规则命中更准 ——
+sniffer:
+  enable: true
+  parse-pure-ip: true
+  override-destination: false
+  sniff:
+    HTTP:
+      ports: [80, 8080-8880]
+    TLS:
+      ports: [443, 8443]
+    QUIC:
+      ports: [443, 8443]
+  skip-domain:
+    - "Mijia Cloud"
+    - "+.push.apple.com"
+
+# —— DNS:全 DoH(IP 端点)+ 三层引导链 + fake-ip ——
+# ① default-nameserver : 纯 IP,只解析 DNS 服务器自身域名,永不依赖代理
+# ② proxy-server-nameserver : 直连解析"代理节点自己的域名",打破冷启动死锁
+# ③ nameserver : fake-ip 过滤后的直连域名走这
+dns:
+  enable: true
+  listen: 0.0.0.0:1053
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter-mode: blacklist   # 命中 filter = 跳过 fake-ip,做真实解析拿真 IP
+  respect-rules: false             # DNS 上游按下方字段走,不受 rules 影响(冷启动更稳)
+
+  default-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+
+  proxy-server-nameserver:
+    - https://223.5.5.5/dns-query
+    - https://1.12.12.12/dns-query
+
+  nameserver:
+    - https://223.5.5.5/dns-query
+    - https://1.12.12.12/dns-query
+
+  # 命中者走真实解析(直连需要真 IP)。与 rule-providers 的 cn_domain 复用同一份数据,零维护。
+  fake-ip-filter:
+    - "rule-set:private_domain"
+    - "rule-set:cn_domain"
+    - "geosite:cn"
+    - "geosite:private"
+    - "+.lan"
+    - "+.local"
+    - "+.localdomain"
+    - "+.home.arpa"
+    - "+.sakurapuare.com"
+    - "+.shuyingapp.cn"
+    - "localhost.ptlogin2.qq.com"
+    - "+.market.xiaomi.com"
+    - "*.aliddns.com"
+    - "+.oray.com"
+    - "tracker.*"
+    - "announce.*"
+    - "torrent.*"
+
+geodata-mode: false
+geo-auto-update: true
+geo-update-interval: 24            # geodata 每 24h 自更新,零维护

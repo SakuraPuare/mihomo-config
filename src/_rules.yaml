@@ -1,0 +1,49 @@
+# ============================================================
+# _rules.yaml —— 中间档极简规则 + rule-providers
+# 出口组名由 build.sh 生成,这里引用固定名:🚀 节点选择 / 🤖 AI
+# ============================================================
+
+rules:
+  # 1) 私有 / 局域网 / 自建基建 → 直连
+  - RULE-SET,private_domain,DIRECT
+  - RULE-SET,private_ip,DIRECT,no-resolve
+  - DOMAIN-KEYWORD,sakurapuare,DIRECT
+  - DOMAIN-SUFFIX,shuyingapp.cn,DIRECT
+
+  # 2) AI 全家 → 🤖 AI(只走 US/SG,防封号)。放在国内规则之前,优先级最高的业务例外
+  - RULE-SET,ai_domain,🤖 AI
+
+  # 3) 国内 → 直连
+  - RULE-SET,cn_domain,DIRECT
+  - RULE-SET,cn_ip,DIRECT,no-resolve
+
+  # 4) 兜底 → 🚀 节点选择(其余一切出海)
+  - MATCH,🚀 节点选择
+
+# —— rule-anchor:统一 .mrs 源的公共字段 ——
+rule-anchor:
+  domain: &domain { type: http, interval: 86400, behavior: domain, format: mrs }
+  ip: &ip { type: http, interval: 86400, behavior: ipcidr, format: mrs }
+
+rule-providers:
+  private_domain:
+    <<: *domain
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/private.mrs"
+    path: ./rules/private_domain.mrs
+  cn_domain:
+    <<: *domain
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/cn.mrs"
+    path: ./rules/cn_domain.mrs
+  # AI 全家:anthropic/openai/gemini/copilot 等,meta-rules-dat 官方分类,自动更新零维护
+  ai_domain:
+    <<: *domain
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/category-ai-!cn.mrs"
+    path: ./rules/ai_domain.mrs
+  private_ip:
+    <<: *ip
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/private.mrs"
+    path: ./rules/private_ip.mrs
+  cn_ip:
+    <<: *ip
+    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/cn.mrs"
+    path: ./rules/cn_ip.mrs

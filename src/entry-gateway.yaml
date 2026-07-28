@@ -1,0 +1,20 @@
+# ============================================================
+# entry-gateway.yaml —— 仅网关差异段(Landscape eBPF tproxy 出口)
+# build.sh 会把 __CONTROLLER_SECRET__ 替换成 secrets.local.env 的真实值
+# ============================================================
+
+# Landscape 的 eBPF flow 把 192.168.100.0/24 v4 redirect 到这个 tproxy 端口
+tproxy-port: 12345
+mixed-port: 7890
+allow-lan: true
+bind-address: "*"
+authentication: [""]
+
+# 面板:沿用现状,经 socat 9090 -> :9999 暴露到 LAN(勿公网暴露)
+external-controller: :9999
+external-ui: ui
+secret: "__CONTROLLER_SECRET__"
+
+# tun 在网关不启用(走 eBPF tproxy)
+tun:
+  enable: false

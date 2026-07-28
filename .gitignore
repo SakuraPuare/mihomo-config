@@ -1,0 +1,10 @@
+# 机场订阅真实 URL + controller secret —— 绝不进 repo
+secrets.local.env
+
+# 构建产物含注入后的真实订阅 URL,也不进 public repo
+dist/
+
+# 编辑器/系统杂物
+.DS_Store
+*.swp
+*~

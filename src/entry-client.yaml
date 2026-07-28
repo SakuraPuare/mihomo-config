@@ -1,0 +1,22 @@
+# ============================================================
+# entry-client.yaml —— 仅客户端差异段(手机/电脑 TUN,出门在外用)
+# 不含任何 secret;面板本地监听,无 external secret 暴露
+# ============================================================
+
+mixed-port: 7890
+allow-lan: true
+bind-address: "*"
+
+external-controller: 127.0.0.1:9090
+external-ui: ui
+
+# TUN:接管全平台客户端全局流量
+tun:
+  enable: true
+  stack: mixed              # gvisor+system 混合,兼容性最好
+  auto-route: true
+  auto-redirect: true
+  auto-detect-interface: true
+  dns-hijack:
+    - any:53                # 劫持 53,防 DNS 泄漏
+    - tcp://any:53
