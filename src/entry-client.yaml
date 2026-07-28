@@ -11,14 +11,17 @@ external-controller: 127.0.0.1:9090
 external-ui: ui
 
 # TUN:接管全平台客户端全局流量
+# ⚠️ 客户端(非路由器)绝不要加 auto-redirect:它是路由器 eBPF 转发特性,会在多网卡/docker
+#    盒子上把 TCP 在内核层截走、绕过 TUN 读循环,导致"包进 Meta 但 mihomo 不处理"的 timeout,
+#    且重启不恢复(eBPF 程序持久)。已实测:删掉它即恢复。
+# stack: mixed = TCP 走内核栈(性能好)+ UDP 走 gvisor(省内核权限)。已在多网卡+docker 的
+#    Linux 盒子实测可用。若某设备 TUN 仍 timeout,回退 stack: gvisor(纯用户态,最兼容)。
 tun:
   enable: true
-  stack: mixed              # gvisor+system 混合,兼容性最好
+  stack: mixed
   auto-route: true
-  auto-redirect: true
   auto-detect-interface: true
-  strict-route: true            # 强制所有流量经 TUN,堵住绕过 TUN 的 DNS/socket 泄漏
-  endpoint-independent-nat: true # 改善 P2P/游戏 NAT
   dns-hijack:
     - any:53                # 劫持 53,防 DNS 泄漏
     - tcp://any:53
+  endpoint-independent-nat: true # 改善 P2P/游戏 NAT(无害)
