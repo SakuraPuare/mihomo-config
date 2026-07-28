@@ -80,3 +80,9 @@ dns:
 geodata-mode: false
 geo-auto-update: true
 geo-update-interval: 24            # geodata 每 24h 自更新,零维护
+# geo 数据库同样走 jsdelivr 镜像,防国内冷启动被 GFW 阻断
+geox-url:
+  geoip: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.dat"
+  geosite: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"
+  mmdb: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country.mmdb"
+  asn: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/GeoLite2-ASN.mmdb"

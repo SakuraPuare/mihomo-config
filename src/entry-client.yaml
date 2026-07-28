@@ -17,6 +17,8 @@ tun:
   auto-route: true
   auto-redirect: true
   auto-detect-interface: true
+  strict-route: true            # 强制所有流量经 TUN,堵住绕过 TUN 的 DNS/socket 泄漏
+  endpoint-independent-nat: true # 改善 P2P/游戏 NAT
   dns-hijack:
     - any:53                # 劫持 53,防 DNS 泄漏
     - tcp://any:53
