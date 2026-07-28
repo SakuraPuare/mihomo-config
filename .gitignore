@@ -4,6 +4,9 @@ secrets.local.env
 # 构建产物含注入后的真实订阅 URL,也不进 public repo
 dist/
 
+# 自定义直连域名(可能含企业内网域名),不进 public repo
+custom-direct.list
+
 # 编辑器/系统杂物
 .DS_Store
 *.swp

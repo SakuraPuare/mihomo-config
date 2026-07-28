@@ -68,6 +68,7 @@ dns:
     - "+.home.arpa"
     - "+.sakurapuare.com"
     - "+.shuyingapp.cn"
+    # __CUSTOM_DIRECT_FILTER__  (build.sh 注入 custom-direct.list 的 fake-ip-filter 条目)
     - "localhost.ptlogin2.qq.com"
     - "+.market.xiaomi.com"
     - "*.aliddns.com"

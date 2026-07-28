@@ -129,6 +129,24 @@ EOF
   done
 }
 
+# —— 自定义直连域名(custom-direct.list,可选,本地不进 repo)——
+CUSTOM_LIST=custom-direct.list
+CUSTOM_DOMAINS=()
+if [[ -f "$CUSTOM_LIST" ]]; then
+  while read -r dom _rest; do
+    [[ -z "${dom:-}" || "${dom:0:1}" == "#" ]] && continue
+    CUSTOM_DOMAINS+=("$dom")
+  done < "$CUSTOM_LIST"
+fi
+
+# 生成注入内容(缩进对齐宿主行);无自定义域名则注入空(标记行删掉)
+gen_custom_rules() {   # rules 段: "  - DOMAIN-SUFFIX,x,DIRECT"
+  for d in "${CUSTOM_DOMAINS[@]}"; do echo "  - DOMAIN-SUFFIX,${d},DIRECT"; done
+}
+gen_custom_filter() {  # fake-ip-filter 段: '    - "+.x"'
+  for d in "${CUSTOM_DOMAINS[@]}"; do echo "    - \"+.${d}\""; done
+}
+
 # ============================================================
 # 组装:entry(含 secret 注入) + _general + providers + groups + _rules
 # ============================================================
@@ -140,7 +158,17 @@ EOF
   gen_providers; echo
   gen_groups; echo
   cat "$SRC/_rules.yaml"
-} > "$OUT"
+} > "$OUT.tmp"
+
+# 用 awk 把两个标记行替换成生成内容(无域名则整行删除)
+CUSTOM_RULES="$(gen_custom_rules)"
+CUSTOM_FILTER="$(gen_custom_filter)"
+awk -v rules="$CUSTOM_RULES" -v filt="$CUSTOM_FILTER" '
+  /__CUSTOM_DIRECT_RULES__/  { if (length(rules)) print rules; next }
+  /__CUSTOM_DIRECT_FILTER__/ { if (length(filt))  print filt;  next }
+  { print }
+' "$OUT.tmp" > "$OUT"
+rm -f "$OUT.tmp"
 
 echo "✓ 生成 $OUT ($(wc -l < "$OUT") 行, ${#KEYS[@]} 家机场)"
 

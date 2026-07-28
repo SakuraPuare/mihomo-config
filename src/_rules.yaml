@@ -9,6 +9,7 @@ rules:
   - RULE-SET,private_ip,DIRECT,no-resolve
   - DOMAIN-KEYWORD,sakurapuare,DIRECT
   - DOMAIN-SUFFIX,shuyingapp.cn,DIRECT
+  # __CUSTOM_DIRECT_RULES__  (build.sh 注入 custom-direct.list 的 DOMAIN-SUFFIX 直连规则)
 
   # 2) AI 全家 → 🤖 AI(只走 US/SG,防封号)。放在国内规则之前,优先级最高的业务例外
   - RULE-SET,ai_domain,🤖 AI
