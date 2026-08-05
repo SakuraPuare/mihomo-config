@@ -34,12 +34,51 @@ while read -r key urlvar namevar _rest; do
   [[ -z "${key:-}" || "${key:0:1}" == "#" ]] && continue
   KEYS+=("$key"); URLVARS+=("$urlvar"); NAMEVARS+=("${namevar:-}")
 done < "$CONF"
+
+# —— 各槽位的节点名前缀(供 filter 分段用)。节点名形如 "[WestData] 🇭🇰 Hong Kong | 01",
+#    所以按 ^\[前缀\] 就能锁定某一家。方括号在正则里要转义。
+PREFIX_RES=()
+for i in "${!KEYS[@]}"; do
+  _nv="${NAMEVARS[$i]}"; _n="${!_nv:-}"; _n="${_n:-${KEYS[$i]}}"
+  PREFIX_RES+=("$_n")
+done
 [[ ${#KEYS[@]} -gt 0 ]] || { echo "!! providers.conf 无有效槽位" >&2; exit 1; }
 
 # —— 健康检查公共字段 ——
 HC_URL="https://www.gstatic.com/generate_204"
 HC_INT=60
 LB_STRATEGY="consistent-hashing"
+
+# ============================================================
+# 档位正则(mihomo 的 filter 只能按【节点名】正则,没法按延迟筛,故只能用地区表达)
+# ============================================================
+#
+# JUNK:必须全局排除的非节点条目。混在池里流量落到就断:
+#   [WestData] Traffic: 16.17 GB / 600 GB   [WestData] Expire: 2026-08-28
+#   [Liangxin] 在线设备数量超过套餐允许值!  (整家订阅超限,3 条全是报错文案)
+# ⚠️ "直连" 尤其危险:[Hive] 直连 是真·直连出口,混进出海链会裸穿 GFW
+#    并泄露家里公网 IP(同 worker4 豁免那个坑的性质)。
+JUNK_FILTER='(?i)Traffic|Expire|流量|到期|剩余|重置|套餐|订阅|官网|在线设备|复制|导入|直连|Direct'
+
+# FAST_RE:高速档地区 = 港/台/日/新 + 美国。2026-07-31 以 github.com 为探测目标实测:
+#   港 72-129ms  台 104-107ms  日 110-121ms  新 107ms  美 193-251ms
+#   (对比其余:德 207 / 英 236 / 土 260 / 韩 358 / 智利 412 / 南非 426 / 阿根廷 440 / 巴西 355-1263)
+# ⚠️ 台湾必须按【文字】匹配,不能用 🇨🇳 旗:P1 给台湾打 🇨🇳,而 Hive 给大陆节点也打 🇨🇳,
+#    用旗子会把大陆节点误判进高速档。
+FAST_RE='🇭🇰|香港|Hong ?Kong|\bHK\b|台湾|台北|Taiwan|\bTW\b|🇯🇵|日本|Japan|\bJP\b|🇸🇬|新加坡|Singapore|\bSG\b|🇺🇸|美国|United ?States|\bUS\b'
+
+# USSG_RE:AI 专用(US/SG 防封号)
+USSG_RE='🇺🇸|美国|United ?States|\bUS\b|🇸🇬|新加坡|Singapore|\bSG\b'
+
+# RELAY_RE:名义地区骗人的中转。P3 的 🇭🇰中转 系列实测 975-1117ms,比阿根廷(440)还慢,
+# 但名字里带 🇺🇸/🇭🇰 会被 FAST_RE 命中 → 必须用负向前查踢出高速档。
+# mihomo 用 dlclark/regexp2,支持 lookahead(标准库 regexp 不支持)。
+RELAY_RE='中转|relay'
+
+# 字面反引号。mihomo 的 filter / exclude-filter 用反引号分隔多段正则,
+# 且【多段 filter 会让节点按 filter 出现顺序排序】(groupbase.go:169-194)——
+# 这正是本配置实现严格档位顺序的机制。
+BT='`'
 
 # ============================================================
 # 生成 proxy-providers 段(每家独立,additional-prefix 隔离节点名)
@@ -68,6 +107,44 @@ EOF
 }
 
 # ============================================================
+# 生成严格档位链的 filter
+# ============================================================
+# 机制:mihomo 的 filter 支持反引号分隔多段正则,且【节点按 filter 出现顺序排序】
+#      (groupbase.go:169-194)。配合 type: fallback(逐节点判活,取第一个 alive),
+#      就得到严格语义:前面所有节点全挂,才会用到后面的。
+#
+# 链序 = 高速档按机场优先级 → 其余按机场优先级:
+#   P1高速 P2高速 P3高速 P4高速  P1其余 P2其余 P3其余 P4其余
+#
+# ⚠️ 高速段用负向前查 (?!.*中转) 踢掉 P3 的 🇭🇰中转 系列:它们名字带 🇺🇸/🇭🇰 会被
+#    FAST_RE 命中,但实测 975-1117ms 比阿根廷(440)还慢。中转节点会落到"其余"段兜底。
+#    mihomo 用 dlclark/regexp2,支持 lookahead(Go 标准库 regexp 不支持)。
+gen_chain_filter() {
+  local out="" key pre
+  # 第一段:各家高速节点(排除中转)
+  for i in "${!KEYS[@]}"; do
+    pre="${PREFIX_RES[$i]}"
+    out+="${out:+${BT}}(?i)^\\[${pre}\\](?!.*(?:${RELAY_RE})).*(?:${FAST_RE})"
+  done
+  # 第二段:各家其余节点(前缀匹配即可,兜底不再挑地区)
+  for i in "${!KEYS[@]}"; do
+    pre="${PREFIX_RES[$i]}"
+    out+="${BT}(?i)^\\[${pre}\\]"
+  done
+  printf '%s' "$out"
+}
+
+# AI 专用链:各家 US/SG,按机场优先级(排除中转)
+gen_ai_filter() {
+  local out="" pre
+  for i in "${!KEYS[@]}"; do
+    pre="${PREFIX_RES[$i]}"
+    out+="${out:+${BT}}(?i)^\\[${pre}\\](?!.*(?:${RELAY_RE})).*(?:${USSG_RE})"
+  done
+  printf '%s' "$out"
+}
+
+# ============================================================
 # 生成 proxy-groups 段(两级拓扑)
 # ============================================================
 gen_groups() {
@@ -78,42 +155,101 @@ gen_groups() {
   echo "    type: select"
   echo "    proxies:"
   echo "      - ⚡ 自动"
-  for key in "${KEYS[@]}"; do echo "      - ${key}-均衡"; done
+  echo "      - 🔀 高速均衡"
   echo "      - DIRECT"
   echo "    use:"
   for key in "${KEYS[@]}"; do echo "      - ${key}"; done
 
-  # ---- ⚡ 自动:跨家 fallback,按 providers.conf 顺序 ----
+  # ---- ⚡ 自动:两档 fallback ----
+  # 先按机场优先级走完【全部高速档】,再按机场优先级走【其他档】。
+  # ⚠️ mihomo 的 fallback 语义做不到「整档全挂才降级」:findAliveProxy 读的是缓存存活态,
+  #    而 fallback 探一个成员组 = 经该组真拨一次(组内 consistent-hashing 只命中一个节点),
+  #    那一个节点抖 → 整组判死。见 KB network/gateway-mihomo-two-tier-fallback。
+  #    本结构的作用是把【危害】压掉:要掉到其他档,得所有高速组同时探测失败。
   echo "  - name: ⚡ 自动"
   echo "    type: fallback"
   echo "    url: ${HC_URL}"
   echo "    interval: ${HC_INT}"
-  echo "    proxies:"
-  for key in "${KEYS[@]}"; do echo "      - ${key}-均衡"; done
+  echo "    empty-fallback: REJECT"
+  echo "    filter: '$(gen_chain_filter)'"
+  echo "    exclude-filter: '${JUNK_FILTER}'"
+  echo "    use:"
+  for key in "${KEYS[@]}"; do echo "      - ${key}"; done
 
   # ---- 🤖 AI:跨家 fallback,每家只用 US/SG 均衡组 ----
+  # ---- 🤖 AI:同样严格语义,各家 US/SG 按优先级(防封号)----
   echo "  - name: 🤖 AI"
   echo "    type: fallback"
   echo "    url: ${HC_URL}"
   echo "    interval: ${HC_INT}"
-  echo "    proxies:"
-  for key in "${KEYS[@]}"; do echo "      - ${key}-USSG"; done
+  echo "    empty-fallback: REJECT"
+  echo "    filter: '$(gen_ai_filter)'"
+  echo "    exclude-filter: '${JUNK_FILTER}'"
+  echo "    use:"
+  for key in "${KEYS[@]}"; do echo "      - ${key}"; done
 
-  # ---- 每家两个 load-balance 组:全节点均衡 + US/SG 均衡 ----
-  for key in "${KEYS[@]}"; do
-    # 全节点均衡
-    cat <<EOF
-  - name: ${key}-均衡
+  # ---- 🔀 高速均衡:仅供手动选。跨 4 家的高速节点做 load-balance,牺牲严格语义换带宽聚合 ----
+  # ⚡自动(fallback)永远只用一个节点、不聚合带宽;需要多节点并发时手动切到这个组。
+  cat <<EOF
+  - name: 🔀 高速均衡
     type: load-balance
     strategy: ${LB_STRATEGY}
     url: ${HC_URL}
     interval: ${HC_INT}
     lazy: true
     max-failed-times: 3
+    empty-fallback: REJECT
+    filter: '(?i)^(?!.*(?:${RELAY_RE})).*(?:${FAST_RE})'
+    exclude-filter: '${JUNK_FILTER}'
+    use:
+EOF
+  for key in "${KEYS[@]}"; do echo "      - ${key}"; done
+  return 0
+}
+
+# 旧的每家三组实现已废弃(方案二),保留函数体不再调用
+gen_groups_legacy() {
+  # ---- 每家三个 load-balance 组:高速档 + 其他档 + US/SG(给 AI)----
+  #
+  # ⚠️⚠️ 每组必须显式 empty-fallback: REJECT。
+  # mihomo groupbase.go 里 `if len(proxies)==0 { return EmptyFallback() }`,而默认
+  # EmptyFallback = COMPATIBLE,且 NewCompatible() 返回的是 *Direct —— 即
+  # 【filter 筛不到节点的组会静默变成直连】。DIRECT 永远 alive,于是它会稳稳占住
+  # fallback 链、永不降级,出海流量裸穿 GFW 并泄露家里公网 IP。
+  # 本配置必然出现空组:Hive 只有巴西/国内/直连 → P4-高速 空;Liangxin 整家死透 → 两档全空。
+  # 改成 REJECT 后,空组=明确拒绝(loud fail),不会静默裸奔。
+  for key in "${KEYS[@]}"; do
+    # 高速档:港台日新美,排掉垃圾条目与名义地区骗人的"中转"
+    cat <<EOF
+  - name: ${key}-高速
+    type: load-balance
+    strategy: ${LB_STRATEGY}
+    url: ${HC_URL}
+    interval: ${HC_INT}
+    lazy: true
+    max-failed-times: 3
+    empty-fallback: REJECT
+    filter: '${FAST_FILTER}'
+    exclude-filter: '${JUNK_FILTER}\`${FAST_EXCLUDE}'
     use:
       - ${key}
 EOF
-    # US/SG 均衡(filter 只留美国/新加坡节点)
+    # 其他档:兜底。只排垃圾条目,【不】排高速节点 ——
+    # 它的职责是"高速档全挂时还能上网",宁可与高速档重叠,也不要因为筛空而变 REJECT。
+    cat <<EOF
+  - name: ${key}-其他
+    type: load-balance
+    strategy: ${LB_STRATEGY}
+    url: ${HC_URL}
+    interval: ${HC_INT}
+    lazy: true
+    max-failed-times: 3
+    empty-fallback: REJECT
+    exclude-filter: '${JUNK_FILTER}'
+    use:
+      - ${key}
+EOF
+    # US/SG 均衡(给 🤖 AI 用,防封号)
     cat <<EOF
   - name: ${key}-USSG
     type: load-balance
@@ -122,7 +258,9 @@ EOF
     interval: ${HC_INT}
     lazy: true
     max-failed-times: 3
-    filter: "(?i)美国|新加坡|🇺🇸|🇸🇬|\\\\bus\\\\b|unitedstates|united states|sg|singapore"
+    empty-fallback: REJECT
+    filter: '(?i)美国|新加坡|🇺🇸|🇸🇬|\bUS\b|United ?States|SG|Singapore'
+    exclude-filter: '${JUNK_FILTER}\`${FAST_EXCLUDE}'
     use:
       - ${key}
 EOF
