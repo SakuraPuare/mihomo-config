@@ -31,10 +31,12 @@ sniffer:
     - "Mijia Cloud"
     - "+.push.apple.com"
 
-# —— DNS:全 DoH(IP 端点)+ 三层引导链 + fake-ip ——
+# —— DNS:全 DoH(IP 端点)+ 三层引导链 + fake-ip + fallback 防投毒 ——
 # ① default-nameserver : 纯 IP,只解析 DNS 服务器自身域名,永不依赖代理
 # ② proxy-server-nameserver : 直连解析"代理节点自己的域名",打破冷启动死锁
-# ③ nameserver : fake-ip 过滤后的直连域名走这
+# ③ nameserver : fake-ip 过滤后的直连域名走这(国内 DoH)
+# ④ fallback : fake-ip-filter 内的域名若国内 DoH 返回非 CN IP,用境外 DoH 验证
+# ⑤ nameserver-policy : CN 域名显式走国内(跳过 fallback,更快)
 dns:
   enable: true
   listen: 0.0.0.0:1053
@@ -43,6 +45,7 @@ dns:
   fake-ip-range: 198.18.0.1/16
   fake-ip-filter-mode: blacklist   # 命中 filter = 跳过 fake-ip,做真实解析拿真 IP
   respect-rules: false             # DNS 上游按下方字段走,不受 rules 影响(冷启动更稳)
+  prefer-h3: true                  # DoH over HTTP/3 (QUIC),少一次 RTT
 
   default-nameserver:
     - 223.5.5.5
@@ -55,6 +58,25 @@ dns:
   nameserver:
     - https://223.5.5.5/dns-query
     - https://1.12.12.12/dns-query
+
+  fallback:
+    - https://1.1.1.1/dns-query
+    - https://8.8.8.8/dns-query
+    - https://1.0.0.1/dns-query
+
+  fallback-filter:
+    geoip: true
+    geoip-code: CN
+    ipcidr:
+      - 240.0.0.0/4
+
+  nameserver-policy:
+    "geosite:cn":
+      - https://223.5.5.5/dns-query
+      - https://1.12.12.12/dns-query
+    "geosite:private":
+      - https://223.5.5.5/dns-query
+      - https://1.12.12.12/dns-query
 
   # 命中者走真实解析(直连需要真 IP)。与 rule-providers 的 cn_domain 复用同一份数据,零维护。
   fake-ip-filter:
@@ -73,6 +95,8 @@ dns:
     - "+.market.xiaomi.com"
     - "*.aliddns.com"
     - "+.oray.com"
+    - "stun.*"
+    - "+.stun.easytier.cn"
     - "tracker.*"
     - "announce.*"
     - "torrent.*"
