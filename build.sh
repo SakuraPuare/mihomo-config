@@ -8,6 +8,9 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# macOS 自带 awk 不支持 -v 传多行字符串,优先用 gawk
+AWK_CMD="$(command -v gawk 2>/dev/null || echo awk)"
+
 TARGET="${1:-}"
 case "$TARGET" in
   gateway|client) ;;
@@ -286,22 +289,28 @@ gen_custom_filter() {  # fake-ip-filter 段: '    - "+.x"'
 }
 
 # ============================================================
-# 组装:entry(含 secret 注入) + _general + providers + groups + _rules
+# 组装:entry(含 secret 注入) + _general + providers + groups + _rules-<target>
 # ============================================================
 {
   # entry 段:注入 controller secret(仅 gateway 用到)
   sed "s|__CONTROLLER_SECRET__|${CONTROLLER_SECRET:-change-me}|g" "$SRC/entry-${TARGET}.yaml"
   echo
-  cat "$SRC/_general.yaml"; echo
+  # general 段:client 模式下剔除 GATEWAY_ONLY 标记之间的行
+  if [[ "$TARGET" == "client" ]]; then
+    sed '/__GATEWAY_ONLY_START__/,/__GATEWAY_ONLY_END__/d' "$SRC/_general.yaml"
+  else
+    grep -v '__GATEWAY_ONLY_\(START\|END\)__' "$SRC/_general.yaml"
+  fi
+  echo
   gen_providers; echo
   gen_groups; echo
-  cat "$SRC/_rules.yaml"
+  cat "$SRC/_rules-${TARGET}.yaml"
 } > "$OUT.tmp"
 
 # 用 awk 把两个标记行替换成生成内容(无域名则整行删除)
 CUSTOM_RULES="$(gen_custom_rules)"
 CUSTOM_FILTER="$(gen_custom_filter)"
-awk -v rules="$CUSTOM_RULES" -v filt="$CUSTOM_FILTER" '
+${AWK_CMD:-awk} -v rules="$CUSTOM_RULES" -v filt="$CUSTOM_FILTER" '
   /__CUSTOM_DIRECT_RULES__/  { if (length(rules)) print rules; next }
   /__CUSTOM_DIRECT_FILTER__/ { if (length(filt))  print filt;  next }
   { print }

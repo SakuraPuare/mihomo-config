@@ -1,0 +1,50 @@
+# ============================================================
+# _rules-gateway.yaml —— 网关专用规则
+# 自有域名直连(走 LAN split-DNS)
+# ============================================================
+
+rules:
+  # 1) 私有 / 局域网 / 自建基建 → 直连
+  - RULE-SET,private_domain,DIRECT
+  - RULE-SET,private_ip,DIRECT,no-resolve
+  - DOMAIN-KEYWORD,sakurapuare,DIRECT
+  - DOMAIN-SUFFIX,shuyingapp.cn,DIRECT
+  - DOMAIN-SUFFIX,argotunnel.com,DIRECT
+  # __CUSTOM_DIRECT_RULES__  (build.sh 注入 custom-direct.list 的 DOMAIN-SUFFIX 直连规则)
+
+  # 2) AI 全家 → 🤖 AI(只走 US/SG,防封号)
+  - RULE-SET,ai_domain,🤖 AI
+
+  # 3) 国内 → 直连
+  - RULE-SET,cn_domain,DIRECT
+  - RULE-SET,cn_ip,DIRECT,no-resolve
+
+  # 4) 兜底 → 🚀 节点选择(其余一切出海)
+  - MATCH,🚀 节点选择
+
+# —— rule-anchor ——
+rule-anchor:
+  domain: &domain { type: http, interval: 86400, behavior: domain, format: mrs }
+  ip: &ip { type: http, interval: 86400, behavior: ipcidr, format: mrs }
+
+rule-providers:
+  private_domain:
+    <<: *domain
+    url: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/private.mrs"
+    path: ./rules/private_domain.mrs
+  cn_domain:
+    <<: *domain
+    url: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/cn.mrs"
+    path: ./rules/cn_domain.mrs
+  ai_domain:
+    <<: *domain
+    url: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geosite/category-ai-!cn.mrs"
+    path: ./rules/ai_domain.mrs
+  private_ip:
+    <<: *ip
+    url: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geoip/private.mrs"
+    path: ./rules/private_ip.mrs
+  cn_ip:
+    <<: *ip
+    url: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@meta/geo/geoip/cn.mrs"
+    path: ./rules/cn_ip.mrs
