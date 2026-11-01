@@ -10,6 +10,9 @@ rules:
   - DOMAIN-KEYWORD,sakurapuare,DIRECT
   - DOMAIN-SUFFIX,shuyingapp.cn,DIRECT
   - DOMAIN-SUFFIX,argotunnel.com,DIRECT
+  # ⚠️ 自建域名里必须走代理的例外:cf.* 是 Cloudflare 前置,直连全 timeout(实测 2026-11-02)
+  # 必须排在 __CUSTOM_DIRECT_RULES__ 之前,否则被 custom-direct.list 的 DOMAIN-SUFFIX,548126.xyz,DIRECT 吃掉
+  - DOMAIN,cf.548126.xyz,🚀 节点选择
   # __CUSTOM_DIRECT_RULES__  (build.sh 注入 custom-direct.list 的 DOMAIN-SUFFIX 直连规则)
 
   # 2) AI 全家 → 🤖 AI(只走 US/SG,防封号)
